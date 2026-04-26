@@ -18,14 +18,29 @@
 #include "MainRebarStorage.h"
 #include "MainRebarView.h"
 #include "MainResource.h"
+#include "MainFontSetter.h"
 #include "MainToolbar.h"
+#include "ModelessDialogHelper.h"
 #include "PopupMenuView.h"
+#include "SearchDialog.h"
 #include "ShellBrowser/ShellBrowserImpl.h"
 #include "ShellBrowser/ShellNavigationController.h"
+#include "SystemFontHelper.h"
 #include "TabContainer.h"
 #include "ToolbarContextMenu.h"
 #include "../Helper/MenuHelper.h"
 #include "../Helper/WindowHelper.h"
+
+namespace
+{
+constexpr int SEARCH_BAR_WIDTH = 300;
+constexpr int SEARCH_BAR_HEIGHT = 24;
+constexpr int SEARCH_SCOPE_WIDTH = 112;
+constexpr int SEARCH_EDIT_WIDTH = 180;
+constexpr int SEARCH_CONTROL_GAP = 4;
+constexpr int SEARCH_SCOPE_CURRENT_FOLDER = 0;
+constexpr int SEARCH_SCOPE_DRIVE = 1;
+}
 
 void Explorerplusplus::CreateMainRebarAndChildren(const WindowStorageData *storageData)
 {
@@ -63,6 +78,13 @@ std::vector<RebarView::Band> Explorerplusplus::InitializeMainRebarBands(
 	m_rebarConnections.push_back(m_config->showAddressBar.addObserver(std::bind_front(
 		&RebarView::ShowBand, m_mainRebarView, m_addressBar->GetView()->GetHWND())));
 
+	CreateSearchBar();
+	band = InitializeNonToolbarBand(REBAR_BAND_ID_SEARCH_BAR, m_searchBar, true);
+	band.newLine = false;
+	band.length = SEARCH_BAR_WIDTH;
+	band.idealLength = SEARCH_BAR_WIDTH;
+	mainRebarBands.push_back(band);
+
 	CreateBookmarksToolbar();
 	band = InitializeToolbarBand(REBAR_BAND_ID_BOOKMARKS_TOOLBAR,
 		m_bookmarksToolbar->GetView()->GetHWND(), m_config->showBookmarksToolbar.get());
@@ -93,6 +115,86 @@ std::vector<RebarView::Band> Explorerplusplus::InitializeMainRebarBands(
 	}
 
 	return mainRebarBands;
+}
+
+void Explorerplusplus::CreateSearchBar()
+{
+	m_searchBar = CreateWindowEx(WS_EX_CONTROLPARENT, WC_STATIC, L"",
+		WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN, 0, 0, SEARCH_BAR_WIDTH,
+		SEARCH_BAR_HEIGHT, m_mainRebarView->GetHWND(), nullptr, GetModuleHandle(nullptr), nullptr);
+
+	m_searchScope = CreateWindowEx(0, WC_COMBOBOX, L"",
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_CLIPSIBLINGS, 0, 1,
+		SEARCH_SCOPE_WIDTH, 200, m_searchBar, nullptr, GetModuleHandle(nullptr), nullptr);
+	SendMessage(m_searchScope, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"当前文件夹"));
+	SendMessage(m_searchScope, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"整盘"));
+	SendMessage(m_searchScope, CB_SETCURSEL, SEARCH_SCOPE_CURRENT_FOLDER, 0);
+	m_searchScopeFontSetter =
+		std::make_unique<MainFontSetter>(m_searchScope, m_config, GetDefaultSystemFontForDefaultDpi());
+
+	m_searchEdit = CreateWindowEx(WS_EX_CLIENTEDGE, WC_EDIT, L"",
+		WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | WS_CLIPSIBLINGS,
+		SEARCH_SCOPE_WIDTH + SEARCH_CONTROL_GAP, 0, SEARCH_EDIT_WIDTH, SEARCH_BAR_HEIGHT,
+		m_searchBar, nullptr, GetModuleHandle(nullptr), nullptr);
+	SendMessage(m_searchEdit, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"搜索"));
+	m_searchEditFontSetter =
+		std::make_unique<MainFontSetter>(m_searchEdit, m_config, GetDefaultSystemFontForDefaultDpi());
+
+	m_windowSubclasses.push_back(std::make_unique<WindowSubclass>(m_searchEdit,
+		std::bind_front(&Explorerplusplus::SearchBarEditSubclass, this)));
+}
+
+void Explorerplusplus::OnSearchBar()
+{
+	auto searchPattern = GetWindowString(m_searchEdit);
+
+	if (searchPattern.empty())
+	{
+		return;
+	}
+
+	const auto *shellBrowser = GetActiveShellBrowser();
+	auto searchDirectory =
+		GetDisplayNameWithFallback(shellBrowser->GetDirectory().Raw(), SHGDN_FORPARSING);
+
+	if (SendMessage(m_searchScope, CB_GETCURSEL, 0, 0) == SEARCH_SCOPE_DRIVE)
+	{
+		TCHAR root[MAX_PATH];
+		StringCchCopy(root, std::size(root), searchDirectory.c_str());
+		PathStripToRoot(root);
+
+		if (!PathIsRoot(root))
+		{
+			return;
+		}
+
+		searchDirectory = root;
+	}
+
+	auto dialogId = L"SearchDialog:" + searchDirectory + L"\n" + searchPattern;
+
+	CreateOrSwitchToModelessDialog(m_app->GetModelessDialogList(), dialogId,
+		[this, searchDirectory, searchPattern]()
+		{
+			return SearchDialog::Create(m_app->GetResourceLoader(), m_hContainer, searchDirectory,
+				searchPattern, true, true, m_app->GetBrowserList());
+		});
+}
+
+LRESULT Explorerplusplus::SearchBarEditSubclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	switch (msg)
+	{
+	case WM_KEYDOWN:
+		if (wParam == VK_RETURN)
+		{
+			OnSearchBar();
+			return 0;
+		}
+		break;
+	}
+
+	return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
 RebarView::Band Explorerplusplus::InitializeToolbarBand(UINT id, HWND toolbar, bool showBand)

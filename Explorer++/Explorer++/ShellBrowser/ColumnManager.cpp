@@ -14,8 +14,39 @@
 #include "ResourceHelper.h"
 #include "SortModes.h"
 #include "ViewModes.h"
+#include "../Helper/StringHelper.h"
 #include <cassert>
 #include <list>
+
+std::optional<std::wstring> ShellBrowserImpl::MaybeGetCachedColumnText(int itemInternalIndex,
+	ColumnType columnType) const
+{
+	if (columnType != +ColumnType::Size)
+	{
+		return std::nullopt;
+	}
+
+	auto itemItr = m_itemInfoMap.find(itemInternalIndex);
+
+	if (itemItr == m_itemInfoMap.end() || !itemItr->second.isFindDataValid
+		|| (itemItr->second.wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			!= FILE_ATTRIBUTE_DIRECTORY)
+	{
+		return std::nullopt;
+	}
+
+	auto sizeItr = m_directoryState.cachedFolderSizes.find(itemInternalIndex);
+
+	if (sizeItr == m_directoryState.cachedFolderSizes.end())
+	{
+		return std::nullopt;
+	}
+
+	auto displayFormat = m_config->globalFolderSettings.forceSize
+		? m_config->globalFolderSettings.sizeDisplayFormat
+		: +SizeDisplayFormat::None;
+	return FormatSizeString(sizeItr->second, displayFormat);
+}
 
 void ShellBrowserImpl::QueueColumnTask(int itemInternalIndex, ColumnType columnType)
 {

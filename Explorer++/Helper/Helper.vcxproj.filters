@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="DialogSettings.cpp">
@@ -29,6 +29,9 @@
       <Filter>Shell</Filter>
     </ClCompile>
     <ClCompile Include="FolderSize.cpp">
+      <Filter>Shell</Filter>
+    </ClCompile>
+    <ClCompile Include="EverythingClient.cpp">
       <Filter>Shell</Filter>
     </ClCompile>
     <ClCompile Include="ShellHelper.cpp">
@@ -268,6 +271,9 @@
       <Filter>Shell</Filter>
     </ClInclude>
     <ClInclude Include="FolderSize.h">
+      <Filter>Shell</Filter>
+    </ClInclude>
+    <ClInclude Include="EverythingClient.h">
       <Filter>Shell</Filter>
     </ClInclude>
     <ClInclude Include="ShellHelper.h">

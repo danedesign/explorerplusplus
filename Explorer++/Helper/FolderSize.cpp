@@ -3,11 +3,18 @@
 // See LICENSE in the top level directory
 
 #include "stdafx.h"
+#include "EverythingClient.h"
 #include "FolderSize.h"
 #include <filesystem>
 
 FolderInfo GetFolderInfo(const std::wstring &path)
 {
+	if (auto indexedSize = EverythingClient::GetInstance().TryGetIndexedSize(path); indexedSize
+		&& *indexedSize > 0)
+	{
+		return { *indexedSize, 0, 0 };
+	}
+
 	FolderInfo folderInfo = {};
 	std::error_code error;
 

@@ -17,6 +17,7 @@
 #include "../Helper/ComboBox.h"
 #include "../Helper/Controls.h"
 #include "../Helper/DpiCompatibility.h"
+#include "../Helper/EverythingClient.h"
 #include "../Helper/FileDialogs.h"
 #include "../Helper/Helper.h"
 #include "../Helper/RegistrySettings.h"
@@ -26,6 +27,84 @@
 #include "../Helper/XMLSettings.h"
 #include <algorithm>
 #include <regex>
+
+namespace
+{
+std::wstring QuoteEverythingString(const std::wstring &value)
+{
+	std::wstring quoted;
+	quoted.reserve(value.size() + 2);
+	quoted.push_back(L'"');
+
+	for (auto ch : value)
+	{
+		if (ch == L'"')
+		{
+			quoted.push_back(L'"');
+		}
+
+		quoted.push_back(ch);
+	}
+
+	quoted.push_back(L'"');
+	return quoted;
+}
+
+std::wstring NormalizeDirectoryPath(std::wstring path)
+{
+	while (path.length() > 3 && (path.back() == L'\\' || path.back() == L'/'))
+	{
+		path.pop_back();
+	}
+
+	return path;
+}
+
+bool IsPathInDirectoryTree(const std::wstring &path, const std::wstring &baseDirectory)
+{
+	auto normalizedPath = NormalizeDirectoryPath(path);
+
+	if (lstrcmpi(normalizedPath.c_str(), baseDirectory.c_str()) == 0)
+	{
+		return false;
+	}
+
+	if (PathIsRoot(baseDirectory.c_str()))
+	{
+		return _wcsnicmp(normalizedPath.c_str(), baseDirectory.c_str(), baseDirectory.length())
+			== 0;
+	}
+
+	if (normalizedPath.length() <= baseDirectory.length()
+		|| (normalizedPath[baseDirectory.length()] != L'\\'
+			&& normalizedPath[baseDirectory.length()] != L'/'))
+	{
+		return false;
+	}
+
+	return _wcsnicmp(normalizedPath.c_str(), baseDirectory.c_str(), baseDirectory.length()) == 0;
+}
+
+std::wstring PrepareEverythingSearchTerm(std::wstring searchPattern)
+{
+	while (!searchPattern.empty() && searchPattern.front() == L'*')
+	{
+		searchPattern.erase(searchPattern.begin());
+	}
+
+	while (!searchPattern.empty() && searchPattern.back() == L'*')
+	{
+		searchPattern.pop_back();
+	}
+
+	if (searchPattern.find_first_of(L"*?") != std::wstring::npos)
+	{
+		return L"";
+	}
+
+	return searchPattern;
+}
+}
 
 namespace NSearchDialog
 {
@@ -39,6 +118,28 @@ int CALLBACK SortResultsStub(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort);
 
 DWORD WINAPI SearchThread(LPVOID pParam);
 
+}
+
+namespace
+{
+bool PostSearchItemFound(HWND dialog, PIDLIST_ABSOLUTE pidl)
+{
+	PIDLIST_ABSOLUTE clonedPidl = ILCloneFull(pidl);
+
+	if (!clonedPidl)
+	{
+		return false;
+	}
+
+	if (!PostMessage(dialog, NSearchDialog::WM_APP_SEARCHITEMFOUND,
+			reinterpret_cast<WPARAM>(clonedPidl), 0))
+	{
+		CoTaskMemFree(clonedPidl);
+		return false;
+	}
+
+	return true;
+}
 }
 
 const TCHAR SearchDialogPersistentSettings::SETTINGS_KEY[] = _T("Search");
@@ -66,10 +167,44 @@ SearchDialog *SearchDialog::Create(const ResourceLoader *resourceLoader, HWND hP
 	return new SearchDialog(resourceLoader, hParent, searchDirectory, browserList);
 }
 
+SearchDialog *SearchDialog::Create(const ResourceLoader *resourceLoader, HWND hParent,
+	std::wstring_view searchDirectory, std::wstring_view searchPattern, bool startSearch,
+	BrowserList *browserList)
+{
+	return new SearchDialog(resourceLoader, hParent, searchDirectory, searchPattern, startSearch,
+		browserList);
+}
+
+SearchDialog *SearchDialog::Create(const ResourceLoader *resourceLoader, HWND hParent,
+	std::wstring_view searchDirectory, std::wstring_view searchPattern, bool startSearch,
+	bool useModernSearchOptions, BrowserList *browserList)
+{
+	return new SearchDialog(resourceLoader, hParent, searchDirectory, searchPattern, startSearch,
+		useModernSearchOptions, browserList);
+}
+
 SearchDialog::SearchDialog(const ResourceLoader *resourceLoader, HWND hParent,
 	std::wstring_view searchDirectory, BrowserList *browserList) :
+	SearchDialog(resourceLoader, hParent, searchDirectory, L"", false, browserList)
+{
+}
+
+SearchDialog::SearchDialog(const ResourceLoader *resourceLoader, HWND hParent,
+	std::wstring_view searchDirectory, std::wstring_view searchPattern, bool startSearch,
+	BrowserList *browserList) :
+	SearchDialog(resourceLoader, hParent, searchDirectory, searchPattern, startSearch, false,
+		browserList)
+{
+}
+
+SearchDialog::SearchDialog(const ResourceLoader *resourceLoader, HWND hParent,
+	std::wstring_view searchDirectory, std::wstring_view searchPattern, bool startSearch,
+	bool useModernSearchOptions, BrowserList *browserList) :
 	BaseDialog(resourceLoader, IDD_SEARCH, hParent, DialogSizingType::Both),
 	m_searchDirectory(searchDirectory),
+	m_initialSearchPattern(searchPattern),
+	m_startSearchOnInit(startSearch),
+	m_useModernSearchOptions(useModernSearchOptions),
 	m_browserList(browserList),
 	m_bSearching(FALSE),
 	m_bStopSearching(FALSE),
@@ -88,6 +223,10 @@ SearchDialog::~SearchDialog()
 		m_pSearch->StopSearching();
 		m_pSearch->Release();
 	}
+
+	KillTimer(m_hDlg, SEARCH_PROCESSITEMS_TIMER_ID);
+	ClearAwaitingSearchItems();
+	ClearQueuedSearchItemMessages();
 }
 
 INT_PTR SearchDialog::OnInitDialog()
@@ -149,7 +288,9 @@ INT_PTR SearchDialog::OnInitDialog()
 			reinterpret_cast<LPARAM>(strPattern.c_str()));
 	}
 
-	SetDlgItemText(m_hDlg, IDC_COMBO_NAME, m_persistentSettings->m_searchPattern.c_str());
+	SetDlgItemText(m_hDlg, IDC_COMBO_NAME,
+		m_initialSearchPattern.empty() ? m_persistentSettings->m_searchPattern.c_str()
+									   : m_initialSearchPattern.c_str());
 	SetDlgItemText(m_hDlg, IDC_COMBO_DIRECTORY, m_searchDirectory.c_str());
 
 	ComboBox::CreateNew(GetDlgItem(m_hDlg, IDC_COMBO_NAME));
@@ -170,6 +311,11 @@ INT_PTR SearchDialog::OnInitDialog()
 	SetFocus(GetDlgItem(m_hDlg, IDC_COMBO_NAME));
 
 	m_persistentSettings->RestoreDialogPosition(m_hDlg, true);
+
+	if (m_startSearchOnInit)
+	{
+		StartSearching();
+	}
 
 	return FALSE;
 }
@@ -262,8 +408,11 @@ void SearchDialog::StartSearching()
 	ShowWindow(GetDlgItem(m_hDlg, IDC_LINK_STATUS), SW_HIDE);
 	ShowWindow(GetDlgItem(m_hDlg, IDC_STATIC_STATUS), SW_SHOW);
 
-	m_AwaitingSearchItems.clear();
+	KillTimer(m_hDlg, SEARCH_PROCESSITEMS_TIMER_ID);
+	ClearAwaitingSearchItems();
+	ClearQueuedSearchItemMessages();
 	m_SearchItemsMapInternal.clear();
+	m_bSetSearchTimer = TRUE;
 
 	ListView_DeleteAllItems(GetDlgItem(m_hDlg, IDC_LISTVIEW_SEARCHRESULTS));
 
@@ -283,6 +432,13 @@ void SearchDialog::StartSearching()
 		IsDlgButtonChecked(m_hDlg, IDC_CHECK_USEREGULAREXPRESSIONS) == BST_CHECKED;
 
 	BOOL bCaseInsensitive = IsDlgButtonChecked(m_hDlg, IDC_CHECK_CASEINSENSITIVE) == BST_CHECKED;
+
+	if (m_useModernSearchOptions)
+	{
+		bSearchSubFolders = TRUE;
+		bUseRegularExpressions = FALSE;
+		bCaseInsensitive = TRUE;
+	}
 
 	/* Turn search patterns of the form '???' into '*???*', and
 	use this modified string to search. */
@@ -317,6 +473,11 @@ void SearchDialog::StartSearching()
 	if (IsDlgButtonChecked(m_hDlg, IDC_CHECK_SYSTEM) == BST_CHECKED)
 	{
 		dwAttributes |= FILE_ATTRIBUTE_SYSTEM;
+	}
+
+	if (m_useModernSearchOptions)
+	{
+		dwAttributes = 0;
 	}
 
 	m_pSearch = new Search(m_hDlg, szBaseDirectory, szSearchPattern, dwAttributes,
@@ -363,6 +524,18 @@ void SearchDialog::StartSearching()
 	/* Create a background thread, and search using it... */
 	HANDLE hThread = CreateThread(nullptr, 0, NSearchDialog::SearchThread,
 		reinterpret_cast<LPVOID>(m_pSearch), 0, nullptr);
+
+	if (!hThread)
+	{
+		m_pSearch->Release();
+		m_pSearch->Release();
+		m_pSearch = nullptr;
+		m_bSearching = FALSE;
+		m_bStopSearching = FALSE;
+		SetDlgItemText(m_hDlg, IDSEARCH, m_szSearchButton);
+		return;
+	}
+
 	CloseHandle(hThread);
 }
 
@@ -467,6 +640,27 @@ void SearchDialog::UpdateListViewHeader()
 	Header_SetItem(hHeader, iColumn, &hdItem);
 
 	m_iPreviousSelectedColumn = iColumn;
+}
+
+void SearchDialog::ClearAwaitingSearchItems()
+{
+	for (auto pidl : m_AwaitingSearchItems)
+	{
+		CoTaskMemFree(pidl);
+	}
+
+	m_AwaitingSearchItems.clear();
+}
+
+void SearchDialog::ClearQueuedSearchItemMessages()
+{
+	MSG msg;
+
+	while (PeekMessage(&msg, m_hDlg, NSearchDialog::WM_APP_SEARCHITEMFOUND,
+		NSearchDialog::WM_APP_SEARCHITEMFOUND, PM_REMOVE))
+	{
+		CoTaskMemFree(reinterpret_cast<void *>(msg.wParam));
+	}
 }
 
 int CALLBACK NSearchDialog::SortResultsStub(LPARAM lParam1, LPARAM lParam2, LPARAM lParamSort)
@@ -834,7 +1028,15 @@ INT_PTR SearchDialog::OnTimer(int iTimerID)
 		i++;
 	}
 
-	m_bSetSearchTimer = TRUE;
+	if (m_AwaitingSearchItems.empty())
+	{
+		KillTimer(m_hDlg, SEARCH_PROCESSITEMS_TIMER_ID);
+		m_bSetSearchTimer = TRUE;
+	}
+	else
+	{
+		m_bSetSearchTimer = FALSE;
+	}
 
 	return 0;
 }
@@ -898,17 +1100,163 @@ void Search::StartSearching()
 		catch (std::exception)
 		{
 			SendMessage(m_hDlg, NSearchDialog::WM_APP_REGULAREXPRESSIONINVALID, 0, 0);
+			Release();
 
 			return;
 		}
 	}
 
-	SearchDirectory(m_szBaseDirectory);
+	if (!SearchWithEverything())
+	{
+		SearchDirectory(m_szBaseDirectory);
+	}
 
 	SendMessage(m_hDlg, NSearchDialog::WM_APP_SEARCHFINISHED, 0,
 		MAKELPARAM(m_iFoldersFound, m_iFilesFound));
 
 	Release();
+}
+
+bool Search::SearchWithEverything()
+{
+	std::wstring query = m_bSearchSubFolders ? L"path:" : L"parent:";
+	query += QuoteEverythingString(m_szBaseDirectory);
+
+	if (!m_bUseRegularExpressions && lstrlen(m_szSearchPattern) != 0)
+	{
+		auto everythingSearchTerm = PrepareEverythingSearchTerm(m_szSearchPattern);
+
+		if (!everythingSearchTerm.empty())
+		{
+			query += L" ";
+			query += QuoteEverythingString(everythingSearchTerm);
+		}
+	}
+
+	auto results = EverythingClient::GetInstance().Query(query, !m_bCaseInsensitive);
+
+	if (!results)
+	{
+		return false;
+	}
+
+	const auto normalizedBaseDirectory = NormalizeDirectoryPath(m_szBaseDirectory);
+
+	for (const auto &result : *results)
+	{
+		bool bStop = false;
+
+		EnterCriticalSection(&m_csStop);
+		if (m_bStopSearching)
+		{
+			bStop = true;
+		}
+		LeaveCriticalSection(&m_csStop);
+
+		if (bStop)
+		{
+			break;
+		}
+
+		DWORD attributes = result.attributes;
+
+		if (attributes == 0)
+		{
+			attributes = GetFileAttributes(result.fullPath.c_str());
+		}
+
+		if (attributes == INVALID_FILE_ATTRIBUTES)
+		{
+			continue;
+		}
+
+		if (m_bSearchSubFolders && !IsPathInDirectoryTree(result.fullPath, normalizedBaseDirectory))
+		{
+			continue;
+		}
+
+		if (!m_bSearchSubFolders)
+		{
+			TCHAR parentDirectory[MAX_PATH];
+			StringCchCopy(parentDirectory, std::size(parentDirectory), result.fullPath.c_str());
+			PathRemoveFileSpec(parentDirectory);
+
+			if (lstrcmpi(NormalizeDirectoryPath(parentDirectory).c_str(),
+					normalizedBaseDirectory.c_str())
+				!= 0)
+			{
+				continue;
+			}
+		}
+
+		auto fileName = PathFindFileName(result.fullPath.c_str());
+		BOOL bMatchFileName = FALSE;
+
+		if (lstrlen(m_szSearchPattern) != 0)
+		{
+			if (m_bUseRegularExpressions)
+			{
+				if (std::regex_match(fileName, m_rxPattern))
+				{
+					bMatchFileName = TRUE;
+				}
+			}
+			else if (CheckWildcardMatch(m_szSearchPattern, fileName, !m_bCaseInsensitive))
+			{
+				bMatchFileName = TRUE;
+			}
+			else if ((m_bCaseInsensitive && StrStrI(fileName, m_szSearchPattern) != nullptr)
+				|| (!m_bCaseInsensitive && StrStr(fileName, m_szSearchPattern) != nullptr))
+			{
+				bMatchFileName = TRUE;
+			}
+		}
+		else
+		{
+			bMatchFileName = TRUE;
+		}
+
+		BOOL bMatchAttributes = FALSE;
+
+		if (m_dwAttributes != 0)
+		{
+			if ((attributes & m_dwAttributes) == m_dwAttributes)
+			{
+				bMatchAttributes = TRUE;
+			}
+		}
+		else
+		{
+			bMatchAttributes = TRUE;
+		}
+
+		if (!bMatchFileName || !bMatchAttributes)
+		{
+			continue;
+		}
+
+		if ((attributes & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY)
+		{
+			m_iFoldersFound++;
+		}
+		else
+		{
+			m_iFilesFound++;
+		}
+
+		unique_pidl_absolute pidl;
+		HRESULT hr =
+			SHParseDisplayName(result.fullPath.c_str(), nullptr, wil::out_param(pidl), 0, nullptr);
+
+		if (FAILED(hr))
+		{
+			continue;
+		}
+
+		PostSearchItemFound(m_hDlg, pidl.get());
+	}
+
+	return true;
 }
 
 void Search::SearchDirectory(const TCHAR *szDirectory)
@@ -961,7 +1309,7 @@ void Search::SearchDirectoryInternal(const TCHAR *szSearchDirectory,
 	{
 		bool bStop = false;
 
-		while (FindNextFile(hFindFile, &wfd) != 0 && !bStop)
+		do
 		{
 			if (lstrcmpi(wfd.cFileName, _T(".")) != 0 && lstrcmpi(wfd.cFileName, _T("..")) != 0)
 			{
@@ -982,6 +1330,13 @@ void Search::SearchDirectoryInternal(const TCHAR *szSearchDirectory,
 					{
 						if (CheckWildcardMatch(m_szSearchPattern, wfd.cFileName,
 								!m_bCaseInsensitive))
+						{
+							bMatchFileName = TRUE;
+						}
+						else if ((m_bCaseInsensitive
+									 && StrStrI(wfd.cFileName, m_szSearchPattern) != nullptr)
+							|| (!m_bCaseInsensitive
+								&& StrStr(wfd.cFileName, m_szSearchPattern) != nullptr))
 						{
 							bMatchFileName = TRUE;
 						}
@@ -1023,10 +1378,14 @@ void Search::SearchDirectoryInternal(const TCHAR *szSearchDirectory,
 					PathCombine(szFullFileName, szSearchDirectory, wfd.cFileName);
 
 					unique_pidl_absolute pidl;
-					SHParseDisplayName(szFullFileName, nullptr, wil::out_param(pidl), 0, nullptr);
+					HRESULT hr =
+						SHParseDisplayName(szFullFileName, nullptr, wil::out_param(pidl), 0,
+							nullptr);
 
-					PostMessage(m_hDlg, NSearchDialog::WM_APP_SEARCHITEMFOUND,
-						reinterpret_cast<WPARAM>(ILCloneFull(pidl.get())), 0);
+					if (SUCCEEDED(hr))
+					{
+						PostSearchItemFound(m_hDlg, pidl.get());
+					}
 				}
 
 				if ((wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == FILE_ATTRIBUTE_DIRECTORY)
@@ -1045,7 +1404,7 @@ void Search::SearchDirectoryInternal(const TCHAR *szSearchDirectory,
 				bStop = true;
 			}
 			LeaveCriticalSection(&m_csStop);
-		}
+		} while (!bStop && FindNextFile(hFindFile, &wfd) != 0);
 
 		FindClose(hFindFile);
 	}

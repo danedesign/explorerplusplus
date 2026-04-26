@@ -136,6 +136,7 @@ private:
 	static const UINT REBAR_BAND_ID_BOOKMARKS_TOOLBAR = 2;
 	static const UINT REBAR_BAND_ID_DRIVES_TOOLBAR = 3;
 	static const UINT REBAR_BAND_ID_APPLICATIONS_TOOLBAR = 4;
+	static const UINT REBAR_BAND_ID_SEARCH_BAR = 5;
 
 	static const UINT_PTR LISTVIEW_ITEM_CHANGED_TIMER_ID = 100001;
 	static const UINT LISTVIEW_ITEM_CHANGED_TIMEOUT = 50;
@@ -278,12 +279,15 @@ private:
 	LRESULT RebarSubclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 	void CreateFolderControls();
 	void CreateAddressBar();
+	void CreateSearchBar();
 	void CreateMainToolbar(
 		const std::optional<MainToolbarStorage::MainToolbarButtons> &initialButtons);
 	void CreateBookmarksToolbar();
 	void CreateDrivesToolbar();
 	void CreateApplicationToolbar();
 	void OnAddressBarSizeUpdated();
+	void OnSearchBar();
+	LRESULT SearchBarEditSubclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 	void OnRebarToolbarSizeUpdated(HWND toolbar);
 	HMENU CreateRebarHistoryMenu(BOOL bBack);
 	bool OnToolbarRightClick(const NMMOUSE *mouseInfo);
@@ -453,6 +457,11 @@ private:
 	// Main rebar
 	MainRebarView *m_mainRebarView = nullptr;
 	std::vector<boost::signals2::scoped_connection> m_rebarConnections;
+	HWND m_searchBar = nullptr;
+	HWND m_searchEdit = nullptr;
+	HWND m_searchScope = nullptr;
+	std::unique_ptr<MainFontSetter> m_searchEditFontSetter;
+	std::unique_ptr<MainFontSetter> m_searchScopeFontSetter;
 
 	/* Toolbars. */
 	MainToolbar *m_mainToolbar;

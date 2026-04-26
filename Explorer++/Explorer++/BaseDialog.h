@@ -65,6 +65,7 @@ private:
 	std::function<void()> m_modelessDialogDestroyedObserver;
 
 	wil::unique_hicon m_icon;
+	wil::unique_hfont m_dialogFont;
 
 	bool m_showingModelessDialog = false;
 

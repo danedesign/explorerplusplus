@@ -21,14 +21,47 @@
 #include "ViewModes.h"
 #include "WebBrowserApp.h"
 #include "../Helper/ListViewHelper.h"
+#include "../Helper/EverythingClient.h"
 #include "../Helper/ScopedRedrawDisabler.h"
 #include "../Helper/ShellHelper.h"
 #include "../Helper/WinRTBaseWrapper.h"
 #include "../Helper/WindowHelper.h"
 #include <wil/com.h>
+#include <algorithm>
+#include <cwctype>
 #include <propkey.h>
 #include <propvarutil.h>
 #include <list>
+#include <unordered_map>
+
+namespace
+{
+std::wstring NormalizePathForLookup(std::wstring path)
+{
+	while (path.length() > 3 && (path.back() == L'\\' || path.back() == L'/'))
+	{
+		path.pop_back();
+	}
+
+	std::transform(path.begin(), path.end(), path.begin(),
+		[](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+
+	return path;
+}
+
+bool IsNetworkOrRemovablePath(const std::wstring &path)
+{
+	TCHAR root[MAX_PATH];
+
+	if (FAILED(StringCchCopy(root, std::size(root), path.c_str())) || !PathStripToRoot(root))
+	{
+		return false;
+	}
+
+	auto driveType = GetDriveType(root);
+	return driveType == DRIVE_REMOVABLE || driveType == DRIVE_REMOTE;
+}
+}
 
 void ShellBrowserImpl::OnNavigationStarted(const NavigationRequest *request)
 {
@@ -539,6 +572,8 @@ void ShellBrowserImpl::InsertAwaitingItems()
 		return;
 	}
 
+	PrimeFolderSizeCacheFromEverything();
+
 	/* Make the listview allocate space (for internal data structures)
 	for all the items at once, rather than individually.
 	Acts as a speed optimization. */
@@ -679,6 +714,53 @@ void ShellBrowserImpl::InsertAwaitingItems()
 	{
 		m_directoryState.queuedRenameItem.Reset();
 		ListView_EditLabel(m_listView, *itemToRename);
+	}
+}
+
+void ShellBrowserImpl::PrimeFolderSizeCacheFromEverything()
+{
+	if (m_directoryState.virtualFolder || m_folderSettings.viewMode != +ViewMode::Details
+		|| !m_config->globalFolderSettings.showFolderSizes
+		|| (m_config->globalFolderSettings.disableFolderSizesNetworkRemovable
+			&& IsNetworkOrRemovablePath(m_directoryState.directory))
+		|| !GetColumnIndexByType(ColumnType::Size))
+	{
+		return;
+	}
+
+	m_directoryState.cachedFolderSizes.clear();
+
+	auto indexedFolderSizes =
+		EverythingClient::GetInstance().QueryIndexedFolderSizes(m_directoryState.directory);
+
+	if (!indexedFolderSizes)
+	{
+		return;
+	}
+
+	std::unordered_map<std::wstring, unsigned long long> folderSizesByPath;
+
+	for (const auto &folderSize : *indexedFolderSizes)
+	{
+		folderSizesByPath.insert_or_assign(NormalizePathForLookup(folderSize.fullPath),
+			folderSize.size);
+	}
+
+	for (const auto &[internalIndex, itemInfo] : m_itemInfoMap)
+	{
+		if ((itemInfo.wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != FILE_ATTRIBUTE_DIRECTORY)
+		{
+			continue;
+		}
+
+		auto sizeItr = folderSizesByPath.find(NormalizePathForLookup(itemInfo.parsingName));
+
+		if (sizeItr == folderSizesByPath.end())
+		{
+			continue;
+		}
+
+		m_directoryState.cachedFolderSizes.insert_or_assign(internalIndex, sizeItr->second);
 	}
 }
 

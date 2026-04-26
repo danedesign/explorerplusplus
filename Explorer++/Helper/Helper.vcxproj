@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug-Asan|ARM64">
@@ -792,6 +792,7 @@
     <ClCompile Include="DragDropHelper.cpp" />
     <ClCompile Include="DriveInfo.cpp" />
     <ClCompile Include="DropHandler.cpp" />
+    <ClCompile Include="EverythingClient.cpp" />
     <ClCompile Include="FileActionHandler.cpp" />
     <ClCompile Include="FileDialogs.cpp" />
     <ClCompile Include="KeyboardStateImpl.cpp" />
@@ -903,6 +904,7 @@
     <ClInclude Include="DragDropHelper.h" />
     <ClInclude Include="DriveInfo.h" />
     <ClInclude Include="DropHandler.h" />
+    <ClInclude Include="EverythingClient.h" />
     <ClInclude Include="FileActionHandler.h" />
     <ClInclude Include="FileDialogs.h" />
     <ClInclude Include="KeyboardState.h" />

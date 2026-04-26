@@ -109,6 +109,7 @@ public:
 	void StopSearching();
 
 private:
+	bool SearchWithEverything();
 	void SearchDirectory(const TCHAR *szDirectory);
 	void SearchDirectoryInternal(const TCHAR *szSearchDirectory,
 		std::list<std::wstring> *pSubFolderList);
@@ -136,6 +137,12 @@ class SearchDialog : public BaseDialog
 public:
 	static SearchDialog *Create(const ResourceLoader *resourceLoader, HWND hParent,
 		std::wstring_view searchDirectory, BrowserList *browserList);
+	static SearchDialog *Create(const ResourceLoader *resourceLoader, HWND hParent,
+		std::wstring_view searchDirectory, std::wstring_view searchPattern, bool startSearch,
+		BrowserList *browserList);
+	static SearchDialog *Create(const ResourceLoader *resourceLoader, HWND hParent,
+		std::wstring_view searchDirectory, std::wstring_view searchPattern, bool startSearch,
+		bool useModernSearchOptions, BrowserList *browserList);
 
 	/* Sorting methods. */
 	int CALLBACK SortResults(LPARAM lParam1, LPARAM lParam2);
@@ -160,6 +167,12 @@ private:
 
 	SearchDialog(const ResourceLoader *resourceLoader, HWND hParent,
 		std::wstring_view searchDirectory, BrowserList *browserList);
+	SearchDialog(const ResourceLoader *resourceLoader, HWND hParent,
+		std::wstring_view searchDirectory, std::wstring_view searchPattern, bool startSearch,
+		BrowserList *browserList);
+	SearchDialog(const ResourceLoader *resourceLoader, HWND hParent,
+		std::wstring_view searchDirectory, std::wstring_view searchPattern, bool startSearch,
+		bool useModernSearchOptions, BrowserList *browserList);
 	~SearchDialog();
 
 	std::vector<ResizableDialogControl> GetResizableControls() override;
@@ -171,8 +184,13 @@ private:
 	void StopSearching();
 	void SaveEntry(int comboBoxId, boost::circular_buffer<std::wstring> &buffer);
 	void UpdateListViewHeader();
+	void ClearAwaitingSearchItems();
+	void ClearQueuedSearchItemMessages();
 
 	std::wstring m_searchDirectory;
+	std::wstring m_initialSearchPattern;
+	bool m_startSearchOnInit = false;
+	bool m_useModernSearchOptions = false;
 	BrowserList *const m_browserList;
 	wil::unique_hicon m_directoryIcon;
 	BOOL m_bSearching;

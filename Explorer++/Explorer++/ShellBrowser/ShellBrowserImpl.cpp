@@ -437,6 +437,8 @@ void ShellBrowserImpl::SetViewModeInternal(ViewMode viewMode)
 
 	if (previousViewMode != +ViewMode::Details && viewMode == +ViewMode::Details)
 	{
+		PrimeFolderSizeCacheFromEverything();
+
 		auto firstColumn = GetFirstCheckedColumn();
 
 		if (firstColumn.type != +ColumnType::Name)

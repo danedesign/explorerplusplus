@@ -587,7 +587,15 @@ void ShellBrowserImpl::OnListViewGetDisplayInfo(LPARAM lParam)
 		auto columnType = GetColumnTypeByIndex(plvItem->iSubItem);
 		CHECK(columnType);
 
-		QueueColumnTask(internalIndex, *columnType);
+		if (auto cachedColumnText = MaybeGetCachedColumnText(internalIndex, *columnType);
+			cachedColumnText)
+		{
+			StringCchCopy(plvItem->pszText, plvItem->cchTextMax, cachedColumnText->c_str());
+		}
+		else
+		{
+			QueueColumnTask(internalIndex, *columnType);
+		}
 	}
 
 	if ((plvItem->mask & LVIF_IMAGE) == LVIF_IMAGE)

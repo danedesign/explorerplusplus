@@ -5,10 +5,27 @@
 #include "stdafx.h"
 #include "BaseDialog.h"
 #include "ResourceLoader.h"
+#include "SystemFontHelper.h"
 #include "../Helper/Controls.h"
 #include "../Helper/DpiCompatibility.h"
 #include "../Helper/WindowHelper.h"
 #include <glog/logging.h>
+
+namespace
+{
+void SetDialogFont(HWND dialog, HFONT font)
+{
+	SendMessage(dialog, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+	EnumChildWindows(dialog,
+		[](HWND child, LPARAM fontParam) -> BOOL
+		{
+			SendMessage(child, WM_SETFONT, static_cast<WPARAM>(fontParam), TRUE);
+			return TRUE;
+		},
+		reinterpret_cast<LPARAM>(font));
+}
+}
 
 BaseDialog::BaseDialog(const ResourceLoader *resourceLoader, int iResource, HWND hParent,
 	DialogSizingType dialogSizingType) :
@@ -30,6 +47,18 @@ INT_PTR CALLBACK BaseDialog::BaseDialogProc(HWND hDlg, UINT uMsg, WPARAM wParam,
 		m_tipWnd = CreateTooltipControl(m_hDlg);
 
 		AddDynamicControls();
+
+		auto dialogFont = GetDefaultSystemFontScaledToWindow(m_hDlg);
+		m_dialogFont.reset(CreateFontIndirect(&dialogFont));
+
+		if (m_dialogFont)
+		{
+			SetDialogFont(m_hDlg, m_dialogFont.get());
+		}
+		else
+		{
+			DCHECK(false);
+		}
 
 		if (m_dialogSizingType != DialogSizingType::None)
 		{

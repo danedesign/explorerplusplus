@@ -488,6 +488,9 @@ private:
 	void AddFirstColumn();
 	void SetUpListViewColumns();
 	void DeleteAllColumns();
+	void PrimeFolderSizeCacheFromEverything();
+	std::optional<std::wstring> MaybeGetCachedColumnText(int itemInternalIndex,
+		ColumnType columnType) const;
 	void QueueColumnTask(int itemInternalIndex, ColumnType columnType);
 	static ColumnResult_t GetColumnTextAsync(HWND listView, int columnResultId,
 		ColumnType columnType, int internalIndex, const BasicItemInfo_t &basicItemInfo,
