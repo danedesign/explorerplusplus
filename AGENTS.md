@@ -58,6 +58,9 @@ goals are:
 - `Explorer++/Explorer++/MainRebar.cpp`
 - `Explorer++/Explorer++/Explorer++.h`
   - Adds a top search control with current-folder and whole-drive scope.
+  - Search bar text must not be hard-coded to Chinese. It should use resource strings:
+    `IDS_SEARCH_SCOPE_CURRENT_FOLDER`, `IDS_SEARCH_SCOPE_WHOLE_DRIVE`, and `IDS_TOOLBAR_SEARCH`,
+    with safe English fallback if a translation DLL does not contain the newer strings.
 
 - `Explorer++/Explorer++/ShellBrowser/BrowsingHandler.cpp`
 - `Explorer++/Explorer++/ShellBrowser/ColumnManager.cpp`
@@ -100,6 +103,12 @@ C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\
 
 Build the main app project directly, not the full solution, unless installer work is needed. The
 full solution may try to build the WiX installer and fail if WiX is not installed.
+
+Preferred local build command from repository root:
+
+```powershell
+.\build-release-x64.ps1
+```
 
 From repository root:
 
@@ -181,5 +190,8 @@ After building:
 - Keep Everything optional and dynamically loaded.
 - Keep folder-size code fast but non-blocking where possible; if adding slower work, avoid doing it
   on the UI thread.
+- After any code, documentation, build, or packaging change, update this `AGENTS.md` file when the
+  change affects future context, workflow, testing, or user preferences.
+- After any change, provide the user with a concise commit message they can use directly.
 - If build validation is blocked by the environment, run syntax-only checks and clearly say what was
   and was not verified.

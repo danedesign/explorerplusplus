@@ -8,6 +8,23 @@
     - C++ Clang tools for Windows
 - (Optional) To build the installer, WiX 3.11 and the relevant Visual Studio extension should be installed. Download links for both of those items can be found on the [WiX website](https://wixtoolset.org/docs/wix3/).
 
+# Quick local build for this fork
+
+From the repository root, run:
+
+```powershell
+.\build-release-x64.ps1
+```
+
+That script builds the main Explorer++ app project directly in `Release|x64` and avoids building the full solution installer project, which requires WiX.
+
+Equivalent direct MSBuild command:
+
+```powershell
+$repo = (Get-Location).Path
+& "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" "Explorer++\Explorer++\Explorer++.vcxproj" /p:Configuration=Release /p:Platform=x64 /p:SolutionDir="$repo\Explorer++\"
+```
+
 # Setup
 
 [vcpkg](https://vcpkg.io/) is used to manage dependencies. Before you can build Explorer++, you'll first need to initialize vcpkg:

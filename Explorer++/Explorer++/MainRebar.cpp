@@ -22,6 +22,7 @@
 #include "MainToolbar.h"
 #include "ModelessDialogHelper.h"
 #include "PopupMenuView.h"
+#include "ResourceLoader.h"
 #include "SearchDialog.h"
 #include "ShellBrowser/ShellBrowserImpl.h"
 #include "ShellBrowser/ShellNavigationController.h"
@@ -40,6 +41,17 @@ constexpr int SEARCH_EDIT_WIDTH = 180;
 constexpr int SEARCH_CONTROL_GAP = 4;
 constexpr int SEARCH_SCOPE_CURRENT_FOLDER = 0;
 constexpr int SEARCH_SCOPE_DRIVE = 1;
+
+std::wstring LoadStringWithFallback(const ResourceLoader *resourceLoader, UINT stringId,
+	const wchar_t *fallback)
+{
+	if (auto text = resourceLoader->MaybeLoadString(stringId); text)
+	{
+		return *text;
+	}
+
+	return fallback;
+}
 }
 
 void Explorerplusplus::CreateMainRebarAndChildren(const WindowStorageData *storageData)
@@ -126,8 +138,14 @@ void Explorerplusplus::CreateSearchBar()
 	m_searchScope = CreateWindowEx(0, WC_COMBOBOX, L"",
 		WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | WS_CLIPSIBLINGS, 0, 1,
 		SEARCH_SCOPE_WIDTH, 200, m_searchBar, nullptr, GetModuleHandle(nullptr), nullptr);
-	SendMessage(m_searchScope, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"当前文件夹"));
-	SendMessage(m_searchScope, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"整盘"));
+	auto currentFolderScopeText = LoadStringWithFallback(m_app->GetResourceLoader(),
+		IDS_SEARCH_SCOPE_CURRENT_FOLDER, L"Current folder");
+	auto wholeDriveScopeText = LoadStringWithFallback(m_app->GetResourceLoader(),
+		IDS_SEARCH_SCOPE_WHOLE_DRIVE, L"Whole drive");
+	SendMessage(m_searchScope, CB_ADDSTRING, 0,
+		reinterpret_cast<LPARAM>(currentFolderScopeText.c_str()));
+	SendMessage(m_searchScope, CB_ADDSTRING, 0,
+		reinterpret_cast<LPARAM>(wholeDriveScopeText.c_str()));
 	SendMessage(m_searchScope, CB_SETCURSEL, SEARCH_SCOPE_CURRENT_FOLDER, 0);
 	m_searchScopeFontSetter =
 		std::make_unique<MainFontSetter>(m_searchScope, m_config, GetDefaultSystemFontForDefaultDpi());
@@ -136,7 +154,10 @@ void Explorerplusplus::CreateSearchBar()
 		WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL | WS_CLIPSIBLINGS,
 		SEARCH_SCOPE_WIDTH + SEARCH_CONTROL_GAP, 0, SEARCH_EDIT_WIDTH, SEARCH_BAR_HEIGHT,
 		m_searchBar, nullptr, GetModuleHandle(nullptr), nullptr);
-	SendMessage(m_searchEdit, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"搜索"));
+	auto searchCueText =
+		LoadStringWithFallback(m_app->GetResourceLoader(), IDS_TOOLBAR_SEARCH, L"Search");
+	SendMessage(m_searchEdit, EM_SETCUEBANNER, TRUE,
+		reinterpret_cast<LPARAM>(searchCueText.c_str()));
 	m_searchEditFontSetter =
 		std::make_unique<MainFontSetter>(m_searchEdit, m_config, GetDefaultSystemFontForDefaultDpi());
 
