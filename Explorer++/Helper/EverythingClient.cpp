@@ -177,7 +177,8 @@ std::optional<std::vector<EverythingIndexedFolderSize>> EverythingClient::QueryI
 		}
 
 		if (attributes == INVALID_FILE_ATTRIBUTES
-			|| (attributes & FILE_ATTRIBUTE_DIRECTORY) != FILE_ATTRIBUTE_DIRECTORY || !result.size)
+			|| (attributes & FILE_ATTRIBUTE_DIRECTORY) != FILE_ATTRIBUTE_DIRECTORY || !result.size
+			|| *result.size == 0)
 		{
 			continue;
 		}

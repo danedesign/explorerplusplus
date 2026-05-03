@@ -37,7 +37,7 @@ std::optional<std::wstring> ShellBrowserImpl::MaybeGetCachedColumnText(int itemI
 
 	auto sizeItr = m_directoryState.cachedFolderSizes.find(itemInternalIndex);
 
-	if (sizeItr == m_directoryState.cachedFolderSizes.end())
+	if (sizeItr == m_directoryState.cachedFolderSizes.end() || sizeItr->second == 0)
 	{
 		return std::nullopt;
 	}

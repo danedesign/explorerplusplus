@@ -73,6 +73,9 @@ goals are:
   - Folder-size values are stored in `m_directoryState.cachedFolderSizes`.
   - `MaybeGetCachedColumnText()` serves the Size column immediately from cache and avoids queuing
     the old per-item background column calculation when possible.
+  - Do not cache Everything folder-size results with value `0`. When Everything does not have
+    folder size indexing data, it can return zero for directories; those entries must fall back to
+    the old calculation path instead of being displayed as `0 bytes`.
   - Honors the existing setting that disables folder sizes on network/removable drives.
 
 - `Explorer++/Explorer++/BaseDialog.cpp`
